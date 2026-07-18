@@ -1,0 +1,6 @@
+{
+  "name": "PACE",
+  "description": "PACE V1 - A beautiful, multiplayer learning operating system designed for logging, sharing, and comparing study progress.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
