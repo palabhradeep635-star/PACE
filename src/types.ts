@@ -25,7 +25,9 @@ export interface UserProfile {
   institutionRank?: number;
   globalTotal?: number;
   institutionTotal?: number;
-  xp?: number;
+  xp?: number; // Lifetime XP - Total verified work completed (never decreases)
+  paceRating?: number; // PACE Rating - Current competitive strength / Elo (can go up or down)
+  leaderboardScore?: number; // Leaderboard Score - Ranking score based on recent performance & rating
   longestStreak?: number;
   dailyScore?: number;
   monthlyScore?: number;

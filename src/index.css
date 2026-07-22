@@ -28,6 +28,81 @@ html {
   overflow-x: hidden;
 }
 
+/* Light Theme Mode Rules */
+html[data-theme="light"] {
+  --color-brand-bg: #f8fafc;
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html[data-theme="light"] .glass-panel {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(226, 232, 240, 0.9) !important;
+  color: #0f172a !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05) !important;
+}
+
+html[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+/* Global Accent Color Variables */
+html[data-accent="cyan"] {
+  --color-accent-blue: #22d3ee;
+  --color-accent-purple: #38bdf8;
+  --color-accent-gradient-start: #06b6d4;
+  --color-accent-gradient-end: #0284c7;
+}
+
+html[data-accent="violet"] {
+  --color-accent-blue: #a78bfa;
+  --color-accent-purple: #c084fc;
+  --color-accent-gradient-start: #8b5cf6;
+  --color-accent-gradient-end: #7c3aed;
+}
+
+html[data-accent="emerald"] {
+  --color-accent-blue: #34d399;
+  --color-accent-purple: #2dd4bf;
+  --color-accent-gradient-start: #10b981;
+  --color-accent-gradient-end: #059669;
+}
+
+html[data-accent="amber"] {
+  --color-accent-blue: #fbbf24;
+  --color-accent-purple: #f59e0b;
+  --color-accent-gradient-start: #f59e0b;
+  --color-accent-gradient-end: #d97706;
+}
+
+html[data-accent="rose"] {
+  --color-accent-blue: #fb7185;
+  --color-accent-purple: #f43f5e;
+  --color-accent-gradient-start: #f43f5e;
+  --color-accent-gradient-end: #e11d48;
+}
+
+/* Compact Density Control */
+html[data-density="compact"] .glass-panel {
+  padding-top: 1rem !important;
+  padding-bottom: 1rem !important;
+}
+
+/* Animation Intensity Control */
+html[data-animation="off"] * {
+  animation: none !important;
+  transition: none !important;
+}
+
 body {
   margin: 0;
   padding: 0;

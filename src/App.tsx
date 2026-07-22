@@ -9,22 +9,69 @@ import Lenis from 'lenis';
 import { api } from './lib/api';
 import { UserProfile } from './types';
 import FloatingNav from './components/FloatingNav';
-import SettingsModal from './components/SettingsModal';
+import SettingsView from './components/SettingsView';
 import HomeView from './components/HomeView';
 import LogView from './components/LogView';
 import PeopleView from './components/PeopleView';
 import ProfileView from './components/ProfileView';
+import RankingsHub from './components/RankingsHub';
 import AuthView from './components/AuthView';
 import AnimatedBackground from './components/AnimatedBackground';
 import PacoMascot from './components/PacoMascot';
 
+const getTabFromPath = (path: string): { tab: string; subTab?: string } => {
+  const cleanPath = path.replace(/^\//, '').split('/');
+  const tab = cleanPath[0] || 'home';
+  const subTab = cleanPath[1];
+  return { tab, subTab };
+};
+
 export default function App() {
   const [token, setToken] = useState<string | null>(api.getToken());
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('home');
-  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  
+  // Parse initial tab from pathname for deep-linking
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const parsed = getTabFromPath(window.location.pathname).tab;
+    // Fallback to home if unknown route is hit or invalid
+    const allowed = ['home', 'log', 'people', 'rankings', 'profile', 'settings'];
+    return allowed.includes(parsed) ? parsed : 'home';
+  });
+  
+  const [activeSettingsTab, setActiveSettingsTab] = useState<string>(() => {
+    return getTabFromPath(window.location.pathname).subTab || 'profile';
+  });
+
   const [checkingSession, setCheckingSession] = useState<boolean>(true);
   const [loadingText, setLoadingText] = useState('Connecting securely...');
+
+  // Navigation wrapper that updates the HTML5 history path for deep-linking and back/forward support
+  const navigateTo = (tab: string, subTab?: string) => {
+    const targetSub = subTab || (tab === 'settings' ? activeSettingsTab : undefined);
+    const newPath = targetSub ? `/${tab}/${targetSub}` : `/${tab}`;
+    if (window.location.pathname !== newPath) {
+      window.history.pushState(null, '', newPath);
+    }
+    setActiveTab(tab);
+    if (targetSub) {
+      setActiveSettingsTab(targetSub);
+    }
+  };
+
+  // Setup Back/Forward Navigation sync
+  useEffect(() => {
+    const handlePopState = () => {
+      const { tab, subTab } = getTabFromPath(window.location.pathname);
+      const allowed = ['home', 'log', 'people', 'rankings', 'profile', 'settings'];
+      const resolvedTab = allowed.includes(tab) ? tab : 'home';
+      setActiveTab(resolvedTab);
+      if (subTab) {
+        setActiveSettingsTab(subTab);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Authenticate session on mount
   useEffect(() => {
@@ -81,14 +128,16 @@ export default function App() {
       smoothWheel: true,
     });
 
+    let rafId: number;
     function raf(time: number) {
       lenis.raf(time);
-      requestAnimationFrame(raf);
+      rafId = requestAnimationFrame(raf);
     }
 
-    requestAnimationFrame(raf);
+    rafId = requestAnimationFrame(raf);
 
     return () => {
+      cancelAnimationFrame(rafId);
       lenis.destroy();
     };
   }, []);
@@ -96,14 +145,14 @@ export default function App() {
   const handleAuthSuccess = (newToken: string, authedUser: UserProfile) => {
     setToken(newToken);
     setUser(authedUser);
-    setActiveTab('home');
+    navigateTo('home');
   };
 
   const handleLogout = () => {
     api.logout();
     setToken(null);
     setUser(null);
-    setActiveTab('home');
+    navigateTo('home');
   };
 
   const handleRefreshUser = async () => {
@@ -169,23 +218,13 @@ export default function App() {
             {/* Floating Pill Navigation */}
             <FloatingNav
               activeTab={activeTab}
-              setActiveTab={setActiveTab}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-            />
-
-            {/* Comprehensive Settings Modal */}
-            <SettingsModal
-              user={user}
-              isOpen={isSettingsOpen}
-              onClose={() => setIsSettingsOpen(false)}
-              onLogout={handleLogout}
-              onProfileUpdated={(updated) => setUser(updated)}
+              setActiveTab={navigateTo}
             />
 
             {/* Global Floating Study Companion */}
             <PacoMascot 
               floating={true} 
-              onNavigate={setActiveTab} 
+              onNavigate={navigateTo} 
               activeTab={activeTab} 
               forceProfile={user} 
             />
@@ -209,19 +248,29 @@ export default function App() {
                     <HomeView
                       user={user}
                       onRefreshUser={handleRefreshUser}
-                      setActiveTab={setActiveTab}
+                      setActiveTab={navigateTo}
                     />
                   )}
                   {activeTab === 'log' && (
                     <LogView
                       onLogCompleted={(updatedProfile) => setUser(updatedProfile)}
-                      setActiveTab={setActiveTab}
+                      setActiveTab={navigateTo}
                     />
                   )}
                   {activeTab === 'people' && <PeopleView currentUser={user} />}
+                  {activeTab === 'rankings' && <RankingsHub currentUser={user} />}
                   {activeTab === 'profile' && (
                     <ProfileView
                       user={user}
+                      onProfileUpdated={(updated) => setUser(updated)}
+                    />
+                  )}
+                  {activeTab === 'settings' && (
+                    <SettingsView
+                      user={user}
+                      activeSubTab={activeSettingsTab}
+                      onSubTabChange={(subTab) => navigateTo('settings', subTab)}
+                      onLogout={handleLogout}
                       onProfileUpdated={(updated) => setUser(updated)}
                     />
                   )}
