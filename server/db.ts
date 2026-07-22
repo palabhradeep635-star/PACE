@@ -42,16 +42,13 @@ interface LocalDbSchema {
 }
 
 // Ensure the local database file exists and return parsed data
-function readLocalDb(): LocalDbSchema {
+export function readLocalDb(): LocalDbSchema {
   try {
-    const dir = path.dirname(localDbPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
     if (!fs.existsSync(localDbPath)) {
-      const initial: LocalDbSchema = {
+      const initialDb: LocalDbSchema = {
         profiles: [],
         profilesAuth: [],
+        profilesSessions: [],
         friendRequests: [],
         friends: [],
         learningEvents: [],
@@ -65,15 +62,30 @@ function readLocalDb(): LocalDbSchema {
         profileSettings: [],
         aiAnalysisReports: []
       };
-      fs.writeFileSync(localDbPath, JSON.stringify(initial, null, 2));
-      return initial;
+      fs.writeFileSync(localDbPath, JSON.stringify(initialDb, null, 2), 'utf-8');
+      return initialDb;
     }
-    const content = fs.readFileSync(localDbPath, 'utf8');
-    const parsed = JSON.parse(content);
-    
-    // Ensure all tables exist in loaded JSON (for backward compatibility)
-    let dirty = false;
-    const defaults: any = {
+    const raw = fs.readFileSync(localDbPath, 'utf-8');
+    const db = JSON.parse(raw);
+    db.profiles = db.profiles || [];
+    db.profilesAuth = db.profilesAuth || [];
+    db.profilesSessions = db.profilesSessions || [];
+    db.friendRequests = db.friendRequests || [];
+    db.friends = db.friends || [];
+    db.learningEvents = db.learningEvents || [];
+    db.connectedAccounts = db.connectedAccounts || [];
+    db.resources = db.resources || [];
+    db.clans = db.clans || [];
+    db.clanMembers = db.clanMembers || [];
+    db.notifications = db.notifications || [];
+    db.battles = db.battles || [];
+    db.goals = db.goals || [];
+    db.profileSettings = db.profileSettings || [];
+    db.aiAnalysisReports = db.aiAnalysisReports || [];
+    return db;
+  } catch (error) {
+    console.error('Error reading local JSON db, using empty schema:', error);
+    return {
       profiles: [],
       profilesAuth: [],
       profilesSessions: [],
@@ -90,41 +102,15 @@ function readLocalDb(): LocalDbSchema {
       profileSettings: [],
       aiAnalysisReports: []
     };
-    for (const key of Object.keys(defaults)) {
-      if (!parsed[key]) {
-        parsed[key] = defaults[key];
-        dirty = true;
-      }
-    }
-    if (dirty) {
-      fs.writeFileSync(localDbPath, JSON.stringify(parsed, null, 2));
-    }
-    return parsed as LocalDbSchema;
-  } catch (err) {
-    console.error('Error reading local JSON database:', err);
-    return {
-      profiles: [],
-      friendRequests: [],
-      friends: [],
-      learningEvents: [],
-      connectedAccounts: [],
-      resources: [],
-      clans: [],
-      clanMembers: [],
-      notifications: [],
-      battles: [],
-      goals: [],
-      profileSettings: []
-    };
   }
 }
 
 // Safely write to the local database file
-function writeLocalDb(data: LocalDbSchema) {
+export function writeLocalDb(data: LocalDbSchema) {
   try {
-    fs.writeFileSync(localDbPath, JSON.stringify(data, null, 2));
-  } catch (err) {
-    console.error('Error writing local JSON database:', err);
+    fs.writeFileSync(localDbPath, JSON.stringify(data, null, 2), 'utf-8');
+  } catch (error) {
+    console.error('Error writing local JSON db:', error);
   }
 }
 
@@ -164,25 +150,13 @@ export async function queryDb(text: string, params: any[] = []): Promise<{ rows:
   return { rows: [] };
 }
 
-// Lazy initialization of PG Pool (with seamless JSON fallback)
-export function getPool(): any {
-  if (!isPgEnabled && process.env.NODE_ENV !== 'test') {
-    // Return a mock pool object for query execution
-    return {
-      query: async (text: string, params: any[] = []) => {
-        return await queryDb(text, params);
-      },
-      connect: async () => {
-        throw new Error('PostgreSQL client connection failed. Operating in Local Database Fallback mode.');
-      }
-    };
-  }
-
+// Lazy initialization of PG Pool (strictly PostgreSQL - no local fallback)
+export function getPool(): pg.Pool {
   if (!poolInstance) {
     const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL;
     if (!connectionString) {
       throw new Error(
-        'PostgreSQL connection string is not configured. Please define DATABASE_URL in environment variables.'
+        'PostgreSQL connection string is not configured. Please define DATABASE_URL or SUPABASE_DATABASE_URL in environment variables.'
       );
     }
     poolInstance = new Pool({
@@ -244,13 +218,15 @@ export function getYesterdayString(): string {
   return getDateString(yesterday);
 }
 
-// Auto-initialize tables in PostgreSQL or fallback to local JSON database
+// Auto-initialize tables in PostgreSQL (Mandatory - No fallback allowed)
 export async function initDb(): Promise<void> {
   const connectionString = process.env.DATABASE_URL || process.env.SUPABASE_DATABASE_URL;
   if (!connectionString || connectionString.includes('[YOUR-PASSWORD]')) {
-    console.log('PostgreSQL connection string is not configured or contains placeholder [YOUR-PASSWORD]. Falling back to local JSON database.');
+    console.error('========================================================================');
+    console.error('CRITICAL WARNING: Supabase PostgreSQL database connection string is not configured.');
+    console.error('All data persistence requests will fail until DATABASE_URL or SUPABASE_DATABASE_URL is set.');
+    console.error('========================================================================');
     isPgEnabled = false;
-    readLocalDb();
     return;
   }
 
@@ -258,10 +234,10 @@ export async function initDb(): Promise<void> {
     // Temporarily flag as true to allow testing actual connection
     isPgEnabled = true;
     const pool = getPool();
-    console.log('Testing PostgreSQL connection...');
+    console.log('Testing PostgreSQL/Supabase connection...');
     const client = await pool.connect();
     client.release();
-    console.log('PostgreSQL connected successfully! Initializing database tables...');
+    console.log('PostgreSQL/Supabase connected successfully! Initializing database tables...');
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS public.profiles (
@@ -466,6 +442,18 @@ export async function initDb(): Promise<void> {
       ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS achievement_progress JSONB DEFAULT '{}'::jsonb NOT NULL;
     `);
     await pool.query(`
+      ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS email TEXT;
+    `);
+    await pool.query(`
+      ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS google_sub TEXT;
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_profiles_email ON public.profiles(email);
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_profiles_google_sub ON public.profiles(google_sub);
+    `);
+    await pool.query(`
       ALTER TABLE public.learning_events ADD COLUMN IF NOT EXISTS points INTEGER DEFAULT 0 NOT NULL;
     `);
     await pool.query(`
@@ -524,10 +512,13 @@ export async function initDb(): Promise<void> {
 
     console.log('PostgreSQL database tables verified/created successfully!');
     isPgEnabled = true;
-  } catch (error) {
-    console.error('PostgreSQL database initialization failed. Falling back to local JSON database. Error details:', error);
+  } catch (error: any) {
+    console.error('========================================================================');
+    console.error('CRITICAL WARNING: PostgreSQL/Supabase database initialization or connection failed.');
+    console.error(`Error details: ${error.message || error}`);
+    console.error('The server will start, but database-dependent features will fail with a connection error.');
+    console.error('========================================================================');
     isPgEnabled = false;
-    readLocalDb();
   }
 }
 
@@ -547,9 +538,266 @@ export function checkAndResetStreak(profile: UserProfile): UserProfile {
   return profile;
 }
 
+// Safely parse a date-only string like YYYY-MM-DD as a UTC Date to avoid local timezone/DST shifts in date subtraction
+function parseDateOnlyStr(str: string): Date {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+// Recompute total scores, streaks, level, and stats from the user's immutable learning events to prevent data/persistence loss
+export async function recalculateUserProfileFromEvents(userId: string): Promise<void> {
+  const todayStr = getDateString();
+  const yesterdayStr = getYesterdayString();
+  const startOfWeek = new Date();
+  startOfWeek.setDate(startOfWeek.getDate() - 7);
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+  const startOfYear = new Date();
+  startOfYear.setMonth(0, 1);
+  startOfYear.setHours(0, 0, 0, 0);
+
+  let events: any[] = [];
+  let dbType = 'Local Fallback';
+
+  if (isPgEnabled) {
+    try {
+      dbType = 'PostgreSQL/Supabase';
+      const pool = getPool();
+      const eventsRes = await pool.query(
+        `SELECT id, points, analysis, created_at FROM public.learning_events WHERE user_id = $1`,
+        [userId]
+      );
+      events = eventsRes.rows;
+    } catch (err: any) {
+      console.error(`[AI Studio Debug Error] Error fetching learning events in PG for recalculation for user ${userId}:`, err);
+    }
+  } else {
+    const db = readLocalDb();
+    events = (db.learningEvents || []).filter(e => e.userId === userId);
+  }
+
+  let totalPoints = 0;
+  let totalLogs = events.length;
+  let totalStudyTime = 0;
+  let totalProblemsSolved = 0;
+  let dailyScore = 0;
+  let weeklyScore = 0;
+  let monthlyScore = 0;
+  let yearlyScore = 0;
+  let lastActiveDate = '';
+
+  const activeDaysSet = new Set<string>();
+
+  for (const ev of events) {
+    const pts = ev.points || 0;
+    totalPoints += pts;
+
+    const analysis = ev.analysis;
+    let parsedAnalysis: any = null;
+    if (analysis) {
+      parsedAnalysis = typeof analysis === 'string' ? JSON.parse(analysis) : analysis;
+    }
+
+    let duration = 0;
+    if (parsedAnalysis) {
+      if (typeof parsedAnalysis.duration === 'number') {
+        duration = parsedAnalysis.duration;
+      } else if (typeof parsedAnalysis.duration === 'string') {
+        duration = parseInt(parsedAnalysis.duration, 10) || 0;
+      } else if (!parsedAnalysis.recommendedPoints) {
+        duration = 30; // standard study event fallback
+      }
+    } else {
+      duration = 30;
+    }
+    totalStudyTime += duration;
+
+    let solved = 0;
+    if (parsedAnalysis) {
+      if (typeof parsedAnalysis.problemsSolved === 'number') {
+        solved = parsedAnalysis.problemsSolved;
+      } else if (typeof parsedAnalysis.problemsSolved === 'string') {
+        solved = parseInt(parsedAnalysis.problemsSolved, 10) || 0;
+      }
+    }
+    totalProblemsSolved += solved;
+
+    // Date calculations
+    const createdDate = new Date(ev.createdAt || ev.created_at);
+    const evDateStr = getDateString(createdDate);
+    activeDaysSet.add(evDateStr);
+
+    if (evDateStr === todayStr) {
+      dailyScore += pts;
+    }
+    if (createdDate >= startOfWeek) {
+      weeklyScore += pts;
+    }
+    if (createdDate >= startOfMonth) {
+      monthlyScore += pts;
+    }
+    if (createdDate >= startOfYear) {
+      yearlyScore += pts;
+    }
+  }
+
+  // Calculate streaks from distinct active learning days
+  const activeDays = Array.from(activeDaysSet).sort((a, b) => b.localeCompare(a)); // newest first
+  let calculatedStreak = 0;
+  let calculatedLongestStreak = 0;
+
+  if (activeDays.length > 0) {
+    lastActiveDate = activeDays[0];
+
+    // Current consecutive streak ending today or yesterday
+    if (lastActiveDate === todayStr || lastActiveDate === yesterdayStr) {
+      calculatedStreak = 1;
+      let currentParsed = parseDateOnlyStr(lastActiveDate);
+      for (let i = 1; i < activeDays.length; i++) {
+        const nextDayStr = activeDays[i];
+        const nextParsed = parseDateOnlyStr(nextDayStr);
+        const diffDays = Math.round((currentParsed.getTime() - nextParsed.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          calculatedStreak++;
+          currentParsed = nextParsed;
+        } else if (diffDays > 1) {
+          break;
+        }
+      }
+    }
+
+    // Longest streak segment in all history
+    const activeDaysAsc = Array.from(activeDaysSet).sort((a, b) => a.localeCompare(b));
+    let tempStreak = 0;
+    let lastParsed: Date | null = null;
+    for (const dayStr of activeDaysAsc) {
+      const curParsed = parseDateOnlyStr(dayStr);
+      if (lastParsed === null) {
+        tempStreak = 1;
+      } else {
+        const diffDays = Math.round((curParsed.getTime() - lastParsed.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          tempStreak++;
+        } else if (diffDays > 1) {
+          tempStreak = 1;
+        }
+      }
+      calculatedLongestStreak = Math.max(calculatedLongestStreak, tempStreak);
+      lastParsed = curParsed;
+    }
+  }
+
+  const level = Math.floor(totalPoints / 500) + 1;
+  const xp = totalPoints;
+
+  // Print diagnostic debugging logs requested by user
+  const yesterdayEvents = events.filter(ev => getDateString(new Date(ev.createdAt || ev.created_at)) === yesterdayStr);
+  console.log(`[AI Studio Debug] =========================================`);
+  console.log(`[AI Studio Debug] Logged-in user ID: ${userId}`);
+  console.log(`[AI Studio Debug] Database Type: ${dbType}`);
+  console.log(`[AI Studio Debug] Number of learning_events loaded: ${events.length}`);
+  console.log(`[AI Studio Debug] Total PACE points calculated: ${totalPoints}`);
+  console.log(`[AI Studio Debug] Number of events from yesterday (${yesterdayStr}): ${yesterdayEvents.length}`);
+  console.log(`[AI Studio Debug] Recomputed Level: ${level}, Streak: ${calculatedStreak}, Longest Streak: ${calculatedLongestStreak}`);
+  console.log(`[AI Studio Debug] =========================================`);
+
+  if (isPgEnabled) {
+    try {
+      const pool = getPool();
+      await pool.query(
+        `UPDATE public.profiles 
+         SET points = $1, total_logs = $2, xp = $3, level = $4,
+             streak = $5, longest_streak = $6, last_active_date = $7,
+             daily_score = $8, weekly_points = $9, weekly_score = $9,
+             monthly_score = $10, yearly_score = $11,
+             total_study_time = $12, total_problems_solved = $13
+         WHERE id = $14`,
+        [
+          totalPoints, totalLogs, xp, level,
+          calculatedStreak, calculatedLongestStreak, lastActiveDate,
+          dailyScore, weeklyScore, monthlyScore, yearlyScore,
+          totalStudyTime, totalProblemsSolved, userId
+        ]
+      );
+    } catch (err: any) {
+      console.error(`[AI Studio Debug Error] Error updating profiles in PG after recalculation for user ${userId}:`, err);
+    }
+  } else {
+    const db = readLocalDb();
+    const pIdx = db.profiles.findIndex(p => p.id === userId);
+    if (pIdx !== -1) {
+      db.profiles[pIdx] = {
+        ...db.profiles[pIdx],
+        points: totalPoints,
+        totalLogs,
+        xp,
+        level,
+        streak: calculatedStreak,
+        longestStreak: calculatedLongestStreak,
+        lastActiveDate: lastActiveDate || undefined,
+        dailyScore,
+        weeklyPoints: weeklyScore,
+        weeklyScore,
+        monthlyScore,
+        yearlyScore,
+        totalStudyTime,
+        totalProblemsSolved
+      };
+      writeLocalDb(db);
+    }
+  }
+}
+
 // Database helper functions mapped to standard endpoints
 export const dbHelpers = {
+  recalculateUserProfileFromEvents,
+  getDbStatus,
+  getPool,
+
+  async getAllProfiles(): Promise<UserProfile[]> {
+    if (isPgEnabled) {
+      try {
+        const pool = getPool();
+        const res = await pool.query('SELECT * FROM public.profiles');
+        return res.rows.map(row => ({
+          id: row.id,
+          username: row.username,
+          displayName: row.display_name,
+          avatar: row.avatar,
+          bio: row.bio || '',
+          university: row.university || '',
+          branch: row.branch || '',
+          year: row.year || '',
+          streak: row.streak || 0,
+          totalLogs: row.total_logs || 0,
+          lastActiveDate: row.last_active_date || '',
+          isPrivate: row.is_private || false,
+          points: row.points || 0,
+          level: row.level || 1,
+          weeklyScore: row.weekly_score || 0,
+          weeklyPoints: row.weekly_points || 0,
+          xp: row.xp || 0,
+          longestStreak: row.longest_streak || 0,
+          dailyScore: row.daily_score || 0,
+          monthlyScore: row.monthly_score || 0,
+          yearlyScore: row.yearly_score || 0,
+          totalStudyTime: row.total_study_time || 0,
+          totalProblemsSolved: row.total_problems_solved || 0,
+          totalProjects: row.total_projects || 0,
+        }));
+      } catch (err) {
+        console.error('PostgreSQL error in getAllProfiles:', err);
+      }
+    }
+    const db = readLocalDb();
+    return db.profiles || [];
+  },
+
   async getProfile(userId: string): Promise<UserProfile | null> {
+    // Rebuild profile stats/scores from learning event logs first to guarantee correct hydration/persistence
+    await recalculateUserProfileFromEvents(userId);
+
     if (isPgEnabled) {
       try {
         const pool = getPool();
@@ -623,6 +871,9 @@ export const dbHelpers = {
           achievementProgress: typeof row.achievement_progress === 'string' ? JSON.parse(row.achievement_progress) : (row.achievement_progress || {})
         };
 
+        if (row.email) (profile as any).email = row.email;
+        if (row.google_sub) (profile as any).googleSub = row.google_sub;
+
         profile = checkAndResetStreak(profile);
         return profile;
       } catch (err) {
@@ -679,13 +930,67 @@ export const dbHelpers = {
     return profile;
   },
 
+  async getProfileByEmailOrSub(email?: string, googleSub?: string): Promise<UserProfile | null> {
+    if (!email && !googleSub) return null;
+    if (isPgEnabled) {
+      try {
+        const pool = getPool();
+        const res = await pool.query(
+          `SELECT id FROM public.profiles 
+           WHERE (google_sub IS NOT NULL AND google_sub = $1 AND google_sub != '')
+              OR (email IS NOT NULL AND LOWER(email) = LOWER($2) AND email != '')
+           LIMIT 1`,
+          [googleSub || '', (email || '').toLowerCase()]
+        );
+        if (res.rows.length > 0) {
+          return await this.getProfile(res.rows[0].id);
+        }
+      } catch (err) {
+        console.error('Error finding profile by email or googleSub in PG:', err);
+      }
+    }
+    const db = readLocalDb();
+    const found = db.profiles.find(p => 
+      (googleSub && (p as any).googleSub === googleSub) ||
+      (email && (p as any).email && (p as any).email.toLowerCase() === email.toLowerCase())
+    );
+    if (found) {
+      return await this.getProfile(found.id);
+    }
+    return null;
+  },
+
+  async updateProfileEmailAndSub(userId: string, email?: string, googleSub?: string): Promise<void> {
+    if (isPgEnabled) {
+      try {
+        const pool = getPool();
+        if (email && googleSub) {
+          await pool.query(`UPDATE public.profiles SET email = $1, google_sub = $2 WHERE id = $3`, [email, googleSub, userId]);
+        } else if (email) {
+          await pool.query(`UPDATE public.profiles SET email = $1 WHERE id = $2`, [email, userId]);
+        } else if (googleSub) {
+          await pool.query(`UPDATE public.profiles SET google_sub = $1 WHERE id = $2`, [googleSub, userId]);
+        }
+      } catch (err) {
+        console.error('Error updating profile email/sub in PG:', err);
+      }
+    }
+    const db = readLocalDb();
+    const pIdx = db.profiles.findIndex(p => p.id === userId);
+    if (pIdx !== -1) {
+      if (email) (db.profiles[pIdx] as any).email = email;
+      if (googleSub) (db.profiles[pIdx] as any).googleSub = googleSub;
+      writeLocalDb(db);
+    }
+  },
+
   async createProfile(profile: UserProfile): Promise<UserProfile> {
     if (isPgEnabled) {
       try {
         const pool = getPool();
         await pool.query(
-          `INSERT INTO public.profiles (id, username, display_name, avatar, bio, university, branch, year, streak, total_logs, last_active_date, is_private, points, level, weekly_points, xp, longest_streak, daily_score, weekly_score, monthly_score, yearly_score, total_study_time, total_problems_solved, total_projects, achievement_progress)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
+          `INSERT INTO public.profiles (id, username, display_name, avatar, bio, university, branch, year, streak, total_logs, last_active_date, is_private, points, level, weekly_points, xp, longest_streak, daily_score, weekly_score, monthly_score, yearly_score, total_study_time, total_problems_solved, total_projects, achievement_progress, email, google_sub)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)`,
           [
             profile.id,
             profile.username,
@@ -711,7 +1016,9 @@ export const dbHelpers = {
             profile.totalStudyTime || 0,
             profile.totalProblemsSolved || 0,
             profile.totalProjects || 0,
-            JSON.stringify(profile.achievementProgress || {})
+            JSON.stringify(profile.achievementProgress || {}),
+            (profile as any).email || null,
+            (profile as any).googleSub || null
           ]
         );
         return profile;
@@ -2032,6 +2339,28 @@ export const dbHelpers = {
     writeLocalDb(db);
   },
 
+  async getAllClanMembers(): Promise<Array<{ clanId: string; userId: string; role: string }>> {
+    if (isPgEnabled) {
+      try {
+        const pool = getPool();
+        const res = await pool.query('SELECT clan_id, user_id, role FROM public.clan_members');
+        return res.rows.map(row => ({
+          clanId: row.clan_id,
+          userId: row.user_id,
+          role: row.role
+        }));
+      } catch (err) {
+        console.error('PostgreSQL error in getAllClanMembers:', err);
+      }
+    }
+    const db = readLocalDb();
+    return (db.clanMembers || []).map(m => ({
+      clanId: m.clanId,
+      userId: m.userId,
+      role: m.role
+    }));
+  },
+
   async getNotifications(userId: string): Promise<Notification[]> {
     if (isPgEnabled) {
       try {
@@ -2363,41 +2692,6 @@ export const dbHelpers = {
   },
 
   async getSettings(userId: string): Promise<ProfileSettings> {
-    if (isPgEnabled) {
-      try {
-        const pool = getPool();
-        const res = await pool.query('SELECT * FROM public.profile_settings WHERE user_id = $1', [userId]);
-        if (res.rows.length > 0) {
-          const row = res.rows[0];
-          return {
-            userId: row.user_id,
-            theme: row.theme,
-            timezone: row.timezone,
-            connectedPlatforms: typeof row.connected_platforms === 'string' ? JSON.parse(row.connected_platforms) : (row.connected_platforms || {}),
-            notificationPreferences: typeof row.notification_preferences === 'string' ? JSON.parse(row.notification_preferences) : (row.notification_preferences || {}),
-            privacySettings: typeof row.privacy_settings === 'string' ? JSON.parse(row.privacy_settings) : (row.privacy_settings || { shareLeaderboard: true, showSubmissions: true }),
-            appearanceSettings: typeof row.appearance_settings === 'string' ? JSON.parse(row.appearance_settings) : (row.appearance_settings || { accentColor: 'indigo', reducedMotion: false }),
-            notificationsExtended: typeof row.notifications_extended === 'string' ? JSON.parse(row.notifications_extended) : (row.notifications_extended || { soundEnabled: true, emailDigest: true, streakAlerts: true, goalAlerts: true }),
-            pacoSettings: typeof row.paco_settings === 'string' ? JSON.parse(row.paco_settings) : (row.paco_settings || { disableAnimations: false, reduceMotion: false, hideMascot: false, completelyHidden: false })
-          };
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    }
-    const db = readLocalDb();
-    const s = db.profileSettings.find(set => set.userId === userId);
-    if (s) {
-      return {
-        ...s,
-        privacySettings: s.privacySettings || { shareLeaderboard: true, showSubmissions: true },
-        appearanceSettings: s.appearanceSettings || { accentColor: 'indigo', reducedMotion: false },
-        notificationsExtended: s.notificationsExtended || { soundEnabled: true, emailDigest: true, streakAlerts: true, goalAlerts: true },
-        pacoSettings: s.pacoSettings || { disableAnimations: false, reduceMotion: false, hideMascot: false, completelyHidden: false }
-      };
-    }
-
-    // Default settings
     const def: ProfileSettings = {
       userId,
       theme: 'dark',
@@ -2430,6 +2724,62 @@ export const dbHelpers = {
         completelyHidden: false
       }
     };
+
+    if (isPgEnabled) {
+      try {
+        const pool = getPool();
+        const res = await pool.query('SELECT * FROM public.profile_settings WHERE user_id = $1', [userId]);
+        if (res.rows.length > 0) {
+          const row = res.rows[0];
+          return {
+            userId: row.user_id,
+            theme: row.theme,
+            timezone: row.timezone,
+            connectedPlatforms: typeof row.connected_platforms === 'string' ? JSON.parse(row.connected_platforms) : (row.connected_platforms || def.connectedPlatforms),
+            notificationPreferences: typeof row.notification_preferences === 'string' ? JSON.parse(row.notification_preferences) : (row.notification_preferences || def.notificationPreferences),
+            privacySettings: typeof row.privacy_settings === 'string' ? JSON.parse(row.privacy_settings) : (row.privacy_settings || def.privacySettings),
+            appearanceSettings: typeof row.appearance_settings === 'string' ? JSON.parse(row.appearance_settings) : (row.appearance_settings || def.appearanceSettings),
+            notificationsExtended: typeof row.notifications_extended === 'string' ? JSON.parse(row.notifications_extended) : (row.notifications_extended || def.notificationsExtended),
+            pacoSettings: typeof row.paco_settings === 'string' ? JSON.parse(row.paco_settings) : (row.paco_settings || def.pacoSettings)
+          };
+        } else {
+          // No row found, let's insert the default row in PG
+          await pool.query(
+            `INSERT INTO public.profile_settings (
+               user_id, theme, timezone, connected_platforms, notification_preferences,
+               privacy_settings, appearance_settings, notifications_extended, paco_settings
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [
+              userId, def.theme, def.timezone,
+              JSON.stringify(def.connectedPlatforms),
+              JSON.stringify(def.notificationPreferences),
+              JSON.stringify(def.privacySettings),
+              JSON.stringify(def.appearanceSettings),
+              JSON.stringify(def.notificationsExtended),
+              JSON.stringify(def.pacoSettings)
+            ]
+          );
+          return def;
+        }
+      } catch (err: any) {
+        console.error('PostgreSQL error in getSettings, falling back to JSON local DB:', err);
+      }
+    }
+
+    // JSON Local Fallback
+    const db = readLocalDb();
+    const s = db.profileSettings.find(set => set.userId === userId);
+    if (s) {
+      return {
+        ...s,
+        privacySettings: s.privacySettings || def.privacySettings,
+        appearanceSettings: s.appearanceSettings || def.appearanceSettings,
+        notificationsExtended: s.notificationsExtended || def.notificationsExtended,
+        pacoSettings: s.pacoSettings || def.pacoSettings
+      };
+    }
+
     db.profileSettings.push(def);
     writeLocalDb(db);
     return def;
@@ -2690,7 +3040,7 @@ export const dbHelpers = {
         explanation: `AI-Assisted PACE profile audit recommended points based on balanced progress across: academic (${analysis.academicProgress}%), consistency (${analysis.consistency}%), coding growth (${analysis.codingGrowth}%), project impact (${analysis.projectImpact}%), and GitHub quality (${analysis.githubQuality}%).`
       }];
 
-      ldb.logs.push({
+      ldb.learningEvents.push({
         id: eventId,
         userId,
         username: localProfile.username,

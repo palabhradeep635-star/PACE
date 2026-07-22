@@ -83,6 +83,54 @@ export function fallbackAIAssistedScoring(
 }
 
 /**
+ * Helper to wrap Gemini API generateContent call with a retry loop for transient busy/rate-limited errors.
+ */
+async function generateContentWithRetry(
+  ai: any,
+  params: {
+    model: string;
+    contents: any;
+    config?: any;
+  },
+  maxRetries = 2,
+  delayMs = 1000
+): Promise<any> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await ai.models.generateContent(params);
+    } catch (err: any) {
+      attempt++;
+      const errMsg = err?.message || String(err);
+      const isTransient =
+        err?.status === 'UNAVAILABLE' ||
+        err?.status === 503 ||
+        err?.statusCode === 503 ||
+        err?.status === 429 ||
+        err?.statusCode === 429 ||
+        errMsg.includes('503') ||
+        errMsg.includes('429') ||
+        errMsg.includes('UNAVAILABLE') ||
+        errMsg.includes('busy') ||
+        errMsg.includes('high demand') ||
+        errMsg.includes('temporary');
+
+      if (isTransient && attempt <= maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        delayMs *= 2; // exponential backoff
+        
+        // Swapping to gemini-flash-latest to see if it responds better
+        if (attempt === 1 && params.model === 'gemini-3.5-flash') {
+          params.model = 'gemini-flash-latest';
+        }
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
  * Multi-dimensional structured AI analysis evaluating learning quality and integrity across the user's platforms.
  */
 export async function analyzeAIAssistedScoring(
@@ -98,7 +146,6 @@ export async function analyzeAIAssistedScoring(
 ): Promise<AIAssistedScoringAnalysis> {
   const ai = getGeminiAI();
   if (!ai) {
-    console.log("[AI Scoring] Gemini API not available, using Heuristic Fallback.");
     return fallbackAIAssistedScoring(parsed, context.streak, context.recentLogs, context.connectedAccounts, context.resources);
   }
 
@@ -130,7 +177,7 @@ Evaluate these metrics:
 
 Produce valid JSON conforming to the requested schema.`;
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry(ai, {
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {
@@ -174,8 +221,7 @@ You ONLY supply an adjustment multiplier in the strict range of 0.90 to 1.10 and
       suggested_multiplier,
       explanation: data.explanation || 'AI analysis completed successfully.'
     };
-  } catch (err) {
-    console.error("[AI Scoring Error] Falling back to heuristic calculation:", err);
+  } catch (err: any) {
     return fallbackAIAssistedScoring(parsed, context.streak, context.recentLogs, context.connectedAccounts, context.resources);
   }
 }
@@ -476,13 +522,12 @@ export function heuristicParse(text: string): ParsedLog {
 export async function analyzeStudyLog(rawText: string, recentLogsCountToday: number = 0, recentDurationsToday: number = 0): Promise<ParsedLog> {
   const ai = getGeminiAI();
   if (!ai) {
-    console.log("Gemini API not available, using Heuristic Fallback.");
     const parsed = heuristicParse(rawText);
     return postProcessVerification(parsed, rawText, recentLogsCountToday, recentDurationsToday);
   }
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry(ai, {
       model: "gemini-3.5-flash",
       contents: `Analyze this student study log and extract metadata.
 Log: "${rawText}"
@@ -555,8 +600,7 @@ Always output structural JSON conforming to the schema. Do not make up any keys.
     };
 
     return postProcessVerification(parsed, rawText, recentLogsCountToday, recentDurationsToday);
-  } catch (err) {
-    console.error("Gemini analysis error, falling back to heuristics:", err);
+  } catch (err: any) {
     const parsed = heuristicParse(rawText);
     return postProcessVerification(parsed, rawText, recentLogsCountToday, recentDurationsToday);
   }
@@ -735,7 +779,6 @@ export async function analyzeUserProfile(
 ): Promise<UserProfileAnalysisReport> {
   const ai = getGeminiAI();
   if (!ai) {
-    console.log("[AI Profile Analysis] Gemini API key not found, utilizing fallback heuristics.");
     return fallbackUserProfileAnalysis(profile, logs, connectedAccounts, resources, goals);
   }
 
@@ -778,7 +821,7 @@ Provide constructive evaluation feedback, outlining overall journey, concrete st
 
 Produce valid JSON matching the requested schema exactly.`;
 
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry(ai, {
       model: "gemini-3.5-flash",
       contents: prompt,
       config: {
@@ -829,8 +872,7 @@ Your output MUST be a JSON object matching the requested schema exactly.`,
       weaknesses: Array.isArray(data.weaknesses) ? data.weaknesses : [],
       recommendations: Array.isArray(data.recommendations) ? data.recommendations : []
     };
-  } catch (err) {
-    console.error("[AI Profile Analysis Error] Falling back to heuristics:", err);
+  } catch (err: any) {
     return fallbackUserProfileAnalysis(profile, logs, connectedAccounts, resources, goals);
   }
 }
