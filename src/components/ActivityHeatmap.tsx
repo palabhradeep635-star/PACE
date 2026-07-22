@@ -236,7 +236,9 @@ export default function ActivityHeatmap({ logs, isPrivate = false }: ActivityHea
   const logsByDate = useMemo(() => {
     const counts: Record<string, { count: number; events: LearningEvent[] }> = {};
     logs.forEach(log => {
-      const dateStr = log.createdAt.split('T')[0];
+      // Parse UTC ISO string into browser's local timezone Date object to prevent date shifts
+      const dateObj = new Date(log.createdAt);
+      const dateStr = formatDateKey(dateObj);
       if (!counts[dateStr]) {
         counts[dateStr] = { count: 0, events: [] };
       }

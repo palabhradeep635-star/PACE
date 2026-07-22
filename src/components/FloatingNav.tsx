@@ -5,16 +5,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Home, Edit3, Users, User, Settings } from 'lucide-react';
+import { Home, Edit3, Users, User, Settings, Trophy } from 'lucide-react';
 
 interface FloatingNavProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  onOpenSettings: () => void;
 }
 
-export default function FloatingNav({ activeTab, setActiveTab, onOpenSettings }: FloatingNavProps) {
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+export default function FloatingNav({ activeTab, setActiveTab }: FloatingNavProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
 
@@ -30,16 +28,17 @@ export default function FloatingNav({ activeTab, setActiveTab, onOpenSettings }:
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'log', label: 'Log', icon: Edit3 },
+    { id: 'rankings', label: 'Rankings', icon: Trophy },
     { id: 'people', label: 'People', icon: Users },
     { id: 'profile', label: 'Profile', icon: User },
   ];
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    setMousePos({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    e.currentTarget.style.setProperty('--mouse-x', `${x}px`);
+    e.currentTarget.style.setProperty('--mouse-y', `${y}px`);
   };
 
   return (
@@ -61,21 +60,21 @@ export default function FloatingNav({ activeTab, setActiveTab, onOpenSettings }:
           onMouseMove={handleMouseMove}
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
-          className={`px-3.5 py-2.5 rounded-full flex items-center gap-1.5 shadow-[0_24px_60px_rgba(0,0,0,0.65)] relative overflow-hidden border transition-all duration-300 ${
+          className={`px-3.5 py-2.5 rounded-full flex items-center gap-1.5 shadow-[0_24px_60px_rgba(0,0,0,0.65)] relative overflow-hidden border transition-all duration-300 will-change-transform ${
             isScrolled 
-              ? 'bg-slate-950/80 border-white/15 backdrop-blur-3xl' 
-              : 'bg-slate-950/60 border-white/10 backdrop-blur-2xl'
+              ? 'bg-slate-950/85 border-white/15 backdrop-blur-xl' 
+              : 'bg-slate-950/70 border-white/10 backdrop-blur-lg'
           }`}
         >
           {/* Subtle cursor-reactive magnetic glow */}
           {isHovered && (
             <div 
               style={{
-                left: mousePos.x,
-                top: mousePos.y,
+                left: 'var(--mouse-x, 50%)',
+                top: 'var(--mouse-y, 50%)',
                 transform: 'translate(-50%, -50%)',
               }}
-              className="absolute w-28 h-28 bg-indigo-500/10 rounded-full blur-xl pointer-events-none transition-opacity duration-300"
+              className="absolute w-28 h-28 bg-indigo-500/10 rounded-full blur-lg pointer-events-none transition-opacity duration-300"
             />
           )}
 
@@ -123,10 +122,14 @@ export default function FloatingNav({ activeTab, setActiveTab, onOpenSettings }:
           <div className="w-[1px] h-4 bg-white/15 mx-2 relative z-10" />
 
           <motion.button
-            onClick={onOpenSettings}
+            onClick={() => setActiveTab('settings')}
             whileHover={{ scale: 1.02, backgroundColor: "rgba(99,102,241,0.12)" }}
             whileTap={{ scale: 0.98 }}
-            className="px-4 py-2 rounded-full text-[10px] uppercase tracking-widest font-extrabold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 transition-all cursor-pointer relative z-10"
+            className={`px-4 py-2 rounded-full text-[10px] uppercase tracking-widest font-extrabold flex items-center gap-1.5 transition-all cursor-pointer relative z-10 ${
+              activeTab === 'settings' 
+                ? 'text-white bg-white/10 border border-white/15 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15),0_0_24px_rgba(99,102,241,0.12)]' 
+                : 'text-indigo-400 hover:text-indigo-300'
+            }`}
           >
             <Settings className="w-3.5 h-3.5" />
             <span>Settings</span>
@@ -169,8 +172,12 @@ export default function FloatingNav({ activeTab, setActiveTab, onOpenSettings }:
           <div className="w-[1px] h-4 bg-white/10 mx-1 shrink-0" />
 
           <button
-            onClick={onOpenSettings}
-            className="p-3.5 min-w-[44px] min-h-[44px] rounded-full text-indigo-400 hover:text-indigo-300 transition-colors duration-200 flex items-center justify-center cursor-pointer shrink-0"
+            onClick={() => setActiveTab('settings')}
+            className={`p-3.5 min-w-[44px] min-h-[44px] rounded-full transition-colors duration-200 flex items-center justify-center cursor-pointer shrink-0 ${
+              activeTab === 'settings'
+                ? 'text-cyan-400 bg-white/10 border border-white/10'
+                : 'text-indigo-400 hover:text-indigo-300'
+            }`}
             title="Settings"
           >
             <Settings className="w-4 h-4" />

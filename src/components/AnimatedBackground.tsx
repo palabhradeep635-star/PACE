@@ -78,8 +78,8 @@ export default function AnimatedBackground() {
     let height = (canvas.height = window.innerHeight);
 
     const particles: Particle[] = [];
-    // Adjust density based on screen size
-    const particleCount = Math.min(50, Math.floor((width * height) / 35000));
+    // Adjust density based on screen size (Max 30 particles for 120 FPS performance)
+    const particleCount = Math.min(30, Math.floor((width * height) / 45000));
 
     // Initialize particles with different hues (Indigo to Violet to Blue)
     for (let i = 0; i < particleCount; i++) {
@@ -190,17 +190,18 @@ export default function AnimatedBackground() {
         style={{
           x: driftX,
           y: driftY,
+          background: 'radial-gradient(circle at center, rgba(79, 70, 229, 0.28) 0%, rgba(124, 58, 237, 0.12) 45%, transparent 70%)',
         }}
         animate={{
           scale: [1, 1.05, 0.95, 1],
-          opacity: [0.22, 0.28, 0.24, 0.22],
+          opacity: [0.7, 0.85, 0.75, 0.7],
         }}
         transition={{
           duration: 22,
           repeat: Infinity,
           ease: "easeInOut",
         }}
-        className="absolute top-[-15%] left-[-10%] w-[70vw] h-[70vw] bg-gradient-to-br from-indigo-600/25 via-violet-800/12 to-transparent rounded-full blur-[130px] will-change-transform"
+        className="absolute top-[-15%] left-[-10%] w-[70vw] h-[70vw] rounded-full pointer-events-none will-change-transform"
       />
 
       {/* Mesh Layer 3: Cyan/Electric Blue counter-breathing gradient orb */}
@@ -208,17 +209,18 @@ export default function AnimatedBackground() {
         style={{
           x: driftX3,
           y: driftY3,
+          background: 'radial-gradient(circle at center, rgba(6, 182, 212, 0.18) 0%, rgba(29, 78, 216, 0.10) 45%, transparent 70%)',
         }}
         animate={{
           scale: [1, 0.95, 1.05, 1],
-          opacity: [0.15, 0.20, 0.17, 0.15],
+          opacity: [0.6, 0.8, 0.65, 0.6],
         }}
         transition={{
           duration: 28,
           repeat: Infinity,
           ease: "easeInOut",
         }}
-        className="absolute bottom-[-15%] right-[-10%] w-[65vw] h-[65vw] bg-gradient-to-tl from-cyan-500/15 via-blue-700/10 to-transparent rounded-full blur-[120px] will-change-transform"
+        className="absolute bottom-[-15%] right-[-10%] w-[65vw] h-[65vw] rounded-full pointer-events-none will-change-transform"
       />
 
       {/* Mesh Layer 4: Floating central violet core aura */}
@@ -226,6 +228,7 @@ export default function AnimatedBackground() {
         style={{
           x: driftX4,
           y: driftY4,
+          background: 'radial-gradient(circle at center, rgba(139, 92, 246, 0.12) 0%, transparent 65%)',
         }}
         animate={{
           y: [0, 30, -20, 0],
@@ -236,7 +239,7 @@ export default function AnimatedBackground() {
           repeat: Infinity,
           ease: "easeInOut",
         }}
-        className="absolute top-[20%] left-[25%] w-[50vw] h-[50vh] bg-violet-600/5 rounded-full blur-[140px] will-change-transform"
+        className="absolute top-[20%] left-[25%] w-[50vw] h-[50vh] rounded-full pointer-events-none will-change-transform"
       />
 
       {/* Cybernetic Grid Pattern Overlay (Static for peak rendering performance) */}

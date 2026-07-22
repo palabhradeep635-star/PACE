@@ -69,23 +69,18 @@ export default function InteractiveGlass({
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      style={{
-        rotateX: tiltX,
-        rotateY: tiltY,
-        transformStyle: 'preserve-3d',
-      }}
       whileHover={{
         scale: hoverScale,
-        y: -3,
+        y: -2,
         borderColor: 'rgba(255, 255, 255, 0.16)',
-        boxShadow: '0 30px 60px -15px rgba(0, 0, 0, 0.6)',
+        boxShadow: '0 20px 40px -10px rgba(0, 0, 0, 0.5)',
       }}
       transition={{
         type: 'spring',
-        stiffness: 300,
-        damping: 24,
+        stiffness: 350,
+        damping: 28,
       }}
-      className={`relative rounded-[32px] overflow-hidden border border-white/10 bg-white/5 backdrop-blur-xl transition-colors duration-500 ${className}`}
+      className={`relative rounded-[32px] overflow-hidden border border-white/10 bg-slate-950/40 backdrop-blur-md transition-colors duration-300 will-change-transform ${className}`}
       {...props}
     >
       {/* Dynamic Cursor Spotlight Overlay */}

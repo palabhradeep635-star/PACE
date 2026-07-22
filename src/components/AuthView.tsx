@@ -7,13 +7,36 @@ import React, { useState, FormEvent, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, useSpring, useTransform } from 'motion/react';
 import { api } from '../lib/api';
 import { UserProfile } from '../types';
-import { Lock, User, Sparkles, BookOpen, School, GraduationCap, ArrowRight, Chrome } from 'lucide-react';
+import { Lock, User, Sparkles, BookOpen, School, GraduationCap, ArrowRight, Chrome, Eye, EyeOff } from 'lucide-react';
 import PacoMascot from './PacoMascot';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
 interface AuthViewProps {
   onAuthSuccess: (token: string, user: UserProfile) => void;
+}
+
+function getPasswordStrength(pass: string): 'weak' | 'medium' | 'strong' | 'excellent' | null {
+  if (!pass) return null;
+  if (pass.length < 6) return 'weak';
+  
+  const hasUpper = /[A-Z]/.test(pass);
+  const hasLower = /[a-z]/.test(pass);
+  const hasDigit = /[0-9]/.test(pass);
+  const hasSpecial = /[^A-Za-z0-9]/.test(pass);
+  
+  const score = [hasUpper, hasLower, hasDigit, hasSpecial].filter(Boolean).length;
+  
+  if (pass.length >= 12 && score >= 4) {
+    return 'excellent';
+  }
+  if (pass.length >= 8 && score >= 3) {
+    return 'strong';
+  }
+  if (pass.length >= 6 && score >= 2) {
+    return 'medium';
+  }
+  return 'weak';
 }
 
 export default function AuthView({ onAuthSuccess }: AuthViewProps) {
@@ -28,20 +51,53 @@ export default function AuthView({ onAuthSuccess }: AuthViewProps) {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Password peek interactive state
+  const [showPassword, setShowPassword] = useState(false);
+  const [hasHiddenPasswordAgain, setHasHiddenPasswordAgain] = useState(false);
+
+  useEffect(() => {
+    if (showPassword === false && password.length > 0) {
+      setHasHiddenPasswordAgain(true);
+      const timer = setTimeout(() => {
+        setHasHiddenPasswordAgain(false);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [showPassword]);
+
   const [firebaseConfig, setFirebaseConfig] = useState<any>(null);
 
-  // Load Firebase Config dynamically
+  // Load Firebase Config and GIS script dynamically
   useEffect(() => {
     fetch('/firebase-applet-config.json')
       .then(res => res.json())
       .then(config => setFirebaseConfig(config))
       .catch(err => console.error('Error loading firebase config:', err));
+
+    // Dynamically inject the Google Identity Services SDK script
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.defer = true;
+    document.body.appendChild(script);
+
+    return () => {
+      try {
+        document.body.removeChild(script);
+      } catch (e) {}
+    };
   }, []);
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     setError('');
+    
     try {
+      if (typeof window === 'undefined' || !(window as any).google) {
+        throw new Error('Google Sign-In library is loading. Please try again in 2 seconds.');
+      }
+
+      const google = (window as any).google;
       let config = firebaseConfig;
       if (!config) {
         const res = await fetch('/firebase-applet-config.json');
@@ -49,50 +105,60 @@ export default function AuthView({ onAuthSuccess }: AuthViewProps) {
         setFirebaseConfig(config);
       }
 
-      const app = getApps().length === 0 ? initializeApp(config) : getApp();
-      const auth = getAuth(app);
-      const provider = new GoogleAuthProvider();
-      
-      provider.addScope('openid');
-      provider.addScope('email');
-      provider.addScope('profile');
+      const clientId = config?.oAuthClientId || '238756227188-6fa8d680bmu50efls1egbompv5amb484.apps.googleusercontent.com';
 
-      // Native Google popup via Firebase Auth
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      const idToken = credential?.idToken;
+      // Initialize the secure Google Identity Services OAuth 2.0 token client
+      const client = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'openid email profile',
+        callback: async (tokenResponse: any) => {
+          if (tokenResponse.error) {
+            console.error('Google Sign-In callback error:', tokenResponse);
+            setError(tokenResponse.error_description || 'Google authentication was declined or cancelled.');
+            setGoogleLoading(false);
+            return;
+          }
 
-      if (!idToken) {
-        throw new Error('Failed to obtain Google ID Token.');
-      }
+          const accessToken = tokenResponse.access_token;
+          if (!accessToken) {
+            setError('Failed to obtain Google access token.');
+            setGoogleLoading(false);
+            return;
+          }
 
-      // Log in on backend with Google ID token
-      const res = await fetch('/api/auth/google/signin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
+          try {
+            // Log in on backend with Google accessToken
+            const res = await fetch('/api/auth/google/signin', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ accessToken }),
+            });
+
+            if (!res.ok) {
+              const err = await res.json();
+              throw new Error(err.error || 'Backend authentication failed');
+            }
+
+            const { token, user } = await res.json();
+            api.setToken(token);
+            setIsSuccess(true);
+            setTimeout(() => {
+              onAuthSuccess(token, user);
+            }, 1600);
+          } catch (err: any) {
+            console.error('Google verification backend error:', err);
+            setError(err.message || 'Failed to authenticate Google token on server.');
+            setGoogleLoading(false);
+          }
+        },
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Backend authentication failed');
-      }
-
-      const { token, user } = await res.json();
-      api.setToken(token);
-      setIsSuccess(true);
-      setTimeout(() => {
-        onAuthSuccess(token, user);
-      }, 1600);
+      // Request token (opens secure native popup without iframe communication blockages)
+      client.requestAccessToken();
 
     } catch (err: any) {
       console.error('Google Sign-In Error:', err);
-      if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('popup-closed-by-user') || err.message?.includes('popup-blocked')) {
-        setError('Google Sign-In was blocked or closed (common in sandboxed iframes). Please use the "Create Account" tab above to sign up with a custom username & password!');
-      } else {
-        setError(err.message || 'Failed to authenticate with Google. Please use the "Create Account" tab above to register a standard username & password!');
-      }
-    } finally {
+      setError(err.message || 'Failed to initiate Google Sign-In. Please try again.');
       setGoogleLoading(false);
     }
   };
@@ -338,6 +404,9 @@ export default function AuthView({ onAuthSuccess }: AuthViewProps) {
             <PacoMascot
               mode={isSuccess ? 'login-success' : loading ? 'loading' : isLogin ? 'login-wait' : 'signup-onboard'}
               focusedInput={activeFocus as any}
+              passwordVisible={showPassword}
+              passwordStrength={getPasswordStrength(password)}
+              hasHiddenPasswordAgain={hasHiddenPasswordAgain}
             />
           </motion.div>
         </AnimatePresence>
@@ -476,26 +545,57 @@ export default function AuthView({ onAuthSuccess }: AuthViewProps) {
 
           {/* Password */}
           <motion.div variants={itemVariants} className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-500 uppercase tracking-[0.15em] block">Password</label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-[0.15em] block">Password</label>
+              <AnimatePresence mode="wait">
+                {password && (
+                  <motion.div
+                    key={getPasswordStrength(password) || 'none'}
+                    initial={{ opacity: 0, x: 5 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -5 }}
+                    transition={{ duration: 0.15 }}
+                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
+                  >
+                    {getPasswordStrength(password) === 'weak' && <span className="text-rose-400">Weak 🔴</span>}
+                    {getPasswordStrength(password) === 'medium' && <span className="text-amber-400">Medium 🟡</span>}
+                    {getPasswordStrength(password) === 'strong' && <span className="text-emerald-400">Strong 🟢</span>}
+                    {getPasswordStrength(password) === 'excellent' && <span className="text-indigo-400 font-extrabold">Excellent ✨</span>}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
             <div className="relative group">
               <motion.div
                 animate={{
                   scale: activeFocus === 'password' ? 1.15 : 1,
                   color: activeFocus === 'password' ? '#818cf8' : '#64748b'
                 }}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center justify-center"
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center justify-center pointer-events-none"
               >
                 <Lock className="w-4 h-4" />
               </motion.div>
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onFocus={() => setActiveFocus('password')}
                 onBlur={() => setActiveFocus(null)}
                 placeholder="••••••••"
-                className="w-full bg-white/[0.03] border border-white/10 rounded-2xl py-3 pl-10 pr-4 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-400 focus:bg-white/[0.07] focus:ring-1 focus:ring-indigo-500/20 transition-all font-sans"
+                className="w-full bg-white/[0.03] border border-white/10 rounded-2xl py-3 pl-10 pr-12 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-400 focus:bg-white/[0.07] focus:ring-1 focus:ring-indigo-500/20 transition-all font-sans"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 rounded-lg hover:bg-white/5 text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
             </div>
           </motion.div>
 
