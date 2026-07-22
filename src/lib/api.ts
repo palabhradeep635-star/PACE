@@ -265,6 +265,27 @@ export const api = {
     return res.json();
   },
 
+  async syncAllPlatforms(): Promise<{
+    success: boolean;
+    syncedPlatforms: string[];
+    totalNewEventsCreated: number;
+    xpGained: number;
+    pointsGained: number;
+    updatedProfile: UserProfile;
+    scoreBreakdown: any;
+    achievements: any[];
+  }> {
+    const res = await fetch(`${API_BASE}/platforms/sync-all`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to sync platform accounts');
+    }
+    return res.json();
+  },
+
   // PACE v1 Resources
   async getResources(): Promise<Resource[]> {
     const res = await fetch(`${API_BASE}/resources`, {
@@ -441,6 +462,39 @@ export const api = {
   },
 
   // PACE v1 Profile Settings
+  async changePassword(newPassword: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/auth/password`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ newPassword }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Failed to update password');
+    }
+    return res.json();
+  },
+
+  async getActiveSessions(): Promise<any> {
+    const res = await fetch(`${API_BASE}/auth/sessions`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch active sessions');
+    return res.json();
+  },
+
+  async syncPlatform(platform: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/integrations/sync/${platform}`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || `Failed to sync ${platform}`);
+    }
+    return res.json();
+  },
+
   async getSettings(): Promise<ProfileSettings> {
     const res = await fetch(`${API_BASE}/settings`, {
       headers: getHeaders(),
@@ -464,6 +518,71 @@ export const api = {
       headers: getHeaders(),
     });
     if (!res.ok) throw new Error('Failed to retrieve system status');
+    return res.json();
+  },
+
+  async getProfileAnalysisReports(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/profile/analysis`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to retrieve analysis reports');
+    return res.json();
+  },
+
+  async triggerProfileAnalysis(): Promise<any> {
+    const res = await fetch(`${API_BASE}/profile/analyze`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to generate profile analysis');
+    return res.json();
+  },
+
+  async getScoringBreakdown(): Promise<any> {
+    const res = await fetch(`${API_BASE}/scoring/breakdown`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to retrieve scoring breakdown');
+    return res.json();
+  },
+
+  async getLeaderboards(type = 'global'): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/scoring/leaderboards?type=${type}`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to retrieve leaderboards');
+    return res.json();
+  },
+
+  async getClanRankings(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/clans/rankings`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to retrieve clan rankings');
+    return res.json();
+  },
+
+  async getClanWars(): Promise<any> {
+    const res = await fetch(`${API_BASE}/clans/wars`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to retrieve clan wars status');
+    return res.json();
+  },
+
+  async getAchievements(): Promise<any[]> {
+    const res = await fetch(`${API_BASE}/scoring/achievements`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to retrieve achievements');
+    return res.json();
+  },
+
+  async compareProfiles(userId: string): Promise<any> {
+    const res = await fetch(`${API_BASE}/scoring/compare/${userId}`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to compare profiles');
     return res.json();
   },
 };
